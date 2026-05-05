@@ -27,7 +27,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 script {
-                    docker.build(IMAGE_NAME)
+                    docker.build(IMAGE_NAME, '.')
                 }
             }
         }
@@ -35,7 +35,7 @@ pipeline {
         stage('Run Container (Test Local)') {
             steps {
                 script {
-                    docker.image(IMAGE_NAME).run('-p 8081:8080')
+                    docker.image(IMAGE_NAME).run('-p 8081:8080 -d')
                 }
             }
         }
