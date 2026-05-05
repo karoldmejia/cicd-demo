@@ -13,21 +13,20 @@ pipeline {
         }
 
         stage('Build & Test') {
-            agent {
-                docker {
-                    image 'maven:3.9.9-eclipse-temurin-17'
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
-                }
-            }
             steps {
-                sh 'mvn clean package'
+                script {
+                    docker.image('maven:3.9.9-eclipse-temurin-17').inside {
+                        sh 'mvn clean package'
+                    }
+                }
             }
         }
 
         stage('Docker Build') {
             steps {
                 script {
-                    docker.build(IMAGE_NAME, '.')
+                    def customImage = docker.build(IMAGE_NAME, ".")
+                    echo "Image built: ${customImage.id}"
                 }
             }
         }
@@ -35,7 +34,15 @@ pipeline {
         stage('Run Container (Test Local)') {
             steps {
                 script {
-                    docker.image(IMAGE_NAME).run('-p 8081:8080 -d')
+                    // Clean up if exists
+                    try {
+                        docker.container('cicd-demo-test').stop()
+                        docker.container('cicd-demo-test').remove()
+                    } catch(err) {}
+                    
+                    // Run container
+                    def container = docker.image(IMAGE_NAME).run('-p 8081:8080 -d --name cicd-demo-test')
+                    echo "Container running on port 8081"
                 }
             }
         }
@@ -43,6 +50,12 @@ pipeline {
 
     post {
         always {
+            script {
+                try {
+                    docker.container('cicd-demo-test').stop()
+                    docker.container('cicd-demo-test').remove()
+                } catch(err) {}
+            }
             echo 'Limpiando workspace...'
             cleanWs()
         }
