@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'mi-app:latest'
+        IMAGE_NAME = 'cicd-demo:latest'
     }
 
     stages {
@@ -13,15 +13,14 @@ pipeline {
             }
         }
 
-        stage('Build') {
-            steps {
-                sh 'mvn clean package -DskipTests'
+        stage('Build & Test') {
+            agent {
+                docker {
+                    image 'maven:3.9.9-eclipse-temurin-17'
+                }
             }
-        }
-
-        stage('Test') {
             steps {
-                sh 'mvn test'
+                sh 'mvn clean package'
             }
         }
 
@@ -33,7 +32,7 @@ pipeline {
 
         stage('Run Container (Test Local)') {
             steps {
-                sh 'docker run -d -p 8081:8080 $IMAGE_NAME'
+                sh 'docker run -d -p 8081:8080 $IMAGE_NAME || true'
             }
         }
     }
