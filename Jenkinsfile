@@ -6,7 +6,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git 'https://github.com/karoldmejia/cicd-demo.git'
@@ -17,6 +16,7 @@ pipeline {
             agent {
                 docker {
                     image 'maven:3.9.9-eclipse-temurin-17'
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
                 }
             }
             steps {
@@ -26,13 +26,17 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t $IMAGE_NAME .'
+                script {
+                    docker.build(IMAGE_NAME)
+                }
             }
         }
 
         stage('Run Container (Test Local)') {
             steps {
-                sh 'docker run -d -p 8081:8080 $IMAGE_NAME || true'
+                script {
+                    docker.image(IMAGE_NAME).run('-p 8081:8080')
+                }
             }
         }
     }
