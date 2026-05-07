@@ -38,7 +38,7 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
+                timeout(time: 15, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -59,14 +59,19 @@ pipeline {
                         docker run --rm \
                             -v /var/run/docker.sock:/var/run/docker.sock \
                             aquasec/trivy:latest \
-                            image --severity CRITICAL --exit-code 0 --no-progress ${IMAGE_NAME}
+                            image --severity CRITICAL --exit-code 1 --no-progress ${IMAGE_NAME}
                     """
                 }
             }
         }
 
         stage('Deploy') {
-            when { branch 'main' }
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
             steps {
                 script {
                     sh """
