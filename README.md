@@ -1,89 +1,136 @@
+# Pipeline CI/CD
 
-# CICD-DEMO
+## Descripción del proyecto
 
-This project aims to be the basic skeleton to apply continuous integration and continuous delivery.
+Este proyecto implementa un flujo completo de Integración Continua y Despliegue Continuo (CI/CD) utilizando Jenkins, Docker, SonarQube y Trivy sobre el repositorio:
 
-## Topology
+El objetivo del ejercicio es automatizar:
 
-CICD Demo uses some kubernetes primitives to deploy:
+* construcción de la aplicación,
+* pruebas,
+* análisis de calidad,
+* análisis de seguridad,
+* construcción de imágenes Docker,
+* y despliegue automático local.
 
-* Deployment
-* Services
-* Ingress ( with TLS )
 
-```bash
-     internet
-        |
-   [ Ingress ]
-   --|-----|--
-   [ Services ]
-   --|-----|--
-   [   Pods   ]
+## Configuración del entorno
 
-```
+### 1. Jenkins en Docker
 
-This project includes:
+Se utilizó Jenkins ejecutándose en un contenedor Docker.
 
-* Spring Boot java app
-* Jenkinsfile integration to run pipelines
-* Dockerfile containing the base image to run java apps
-* Makefile and docker-compose to make the pipeline steps much simpler
-* Kubernetes deployment file demonstrating how to deploy this app in a simple Kubernetes cluster
-
-## Pipeline Setup
-
-Pipelines exist at Travis.
-
-Some pipelines are configured by **GitHub/Projects**. If you have created a repository in one of these, your project will be **automatically** built if it has a Jenkinsfile/Travis/Gitlab/CircleCI.
-
-Other pipelines are configured manually under folders. You can create a project manually with the following steps:
-
-How to run the app:
-
-```make
-make
-```
-
-## Testing
-
-Unit tests and integrations tests are separated using [JUnit Categories][].
-
-[JUnit Categories]: https://maven.apache.org/surefire/maven-surefire-plugin/examples/junit.html
-
-### Unit Tests
-
-```java
-mvn test -Dgroups=UnitTest
-```
-
-Or using Docker:
+Comando utilizado:
 
 ```bash
-make build
+docker run -d \
+  --name jenkins \
+  -p 8080:8080 \
+  -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  jenkins/jenkins:lts
 ```
 
-### Integration Tests
+### 2. Plugins instalados en Jenkins
 
-```java
-mvn integration-test -Dgroups=IntegrationTests
-```
+Se instalaron los siguientes plugins:
 
-Or using Docker:
+* Git
+* Pipeline
+* Docker Pipeline
+* SonarQube Scanner
+* Workspace Cleanup
+
+### 3. SonarQube
+
+Se ejecutó SonarQube localmente usando Docker.
+
+Comando utilizado:
 
 ```bash
-make integrationTest
+docker run -d \
+  --name sonarqube \
+  -p 9000:9000 \
+  sonarqube:lts-community
 ```
 
-### System Tests
+Acceso:
 
-System tests run with Selenium using docker-compose to run a [Selenium standalone container][] with Chrome.
+```text
+http://localhost:9000
+```
 
-[Selenium standalone container]: https://github.com/SeleniumHQ/docker-selenium
+### 4. Trivy
 
-Using Docker:
+Trivy se utilizó mediante contenedor Docker para escanear vulnerabilidades en la imagen generada.
 
-* If you are running locally, make sure the `$APP_URL` is populated and points to a valid instance of your application. This variable is populated automatically in Jenkins.
+Imagen utilizada:
 
-```bash
-APP_URL=http://dev-cicd-demo-master.anzcd.internal/ make systemTest
+```text
+aquasec/trivy:latest
+```
+
+## Arquitectura del pipeline
+
+El Jenkinsfile desarrollado para este proyecto define un pipeline declarativo compuesto por varias etapas automatizadas que permiten ejecutar el flujo completo de integración continua y despliegue continuo.
+
+1. La primera etapa corresponde a **Checkout**, donde Jenkins obtiene automáticamente el código fuente del proyecto desde el repositorio de GitHub configurado.
+2. Después se ejecuta la etapa **Build & Test**, encargada de compilar la aplicación utilizando Maven dentro de un contenedor Docker basado en la imagen `maven:3.9.9-eclipse-temurin-17`. Durante esta fase se genera el paquete de la aplicación y se validan los procesos básicos de construcción.
+3. La siguiente etapa es **Static Analysis (SonarQube)**. En esta fase Jenkins ejecuta un análisis estático del código fuente utilizando SonarQube con el objetivo de identificar problemas de calidad, vulnerabilidades, código duplicado y posibles malas prácticas de desarrollo.
+4. Posteriormente se ejecuta la etapa **Quality Gate**, la cual valida automáticamente los resultados entregados por SonarQube. Si el proyecto no cumple las reglas mínimas de calidad configuradas, el pipeline se detiene automáticamente y evita continuar con el despliegue.
+5. Luego se ejecuta la etapa **Docker Build**, donde Jenkins construye una imagen Docker de la aplicación utilizando el Dockerfile presente en el proyecto. La imagen generada se almacena con el nombre:
+
+```text id="5c52jw"
+cicd-demo:latest
+```
+6. Después se ejecuta la etapa **Container Security Scan (Trivy)**. En esta fase se utiliza Trivy para analizar la imagen Docker generada y detectar vulnerabilidades de seguridad conocidas. El pipeline está configurado para fallar automáticamente si Trivy encuentra vulnerabilidades de severidad crítica (CRITICAL).
+7. Finalmente, se ejecuta la etapa **Deploy**, encargada de desplegar automáticamente la aplicación utilizando Docker. Antes de iniciar el nuevo contenedor, el pipeline elimina cualquier contenedor previo llamado `mi-app` para evitar conflictos. Luego se crea un nuevo contenedor utilizando la imagen construida previamente.
+
+La aplicación queda desplegada localmente y accesible desde:
+
+```text id="l4qv4h"
+http://localhost:8081
+```
+
+
+## Automatización del pipeline
+
+Jenkins fue configurado para detectar cambios automáticamente utilizando:
+
+```text
+Poll SCM
+```
+
+Configuración utilizada:
+
+```text
+* * * * *
+```
+
+Esto permite que Jenkins revise el repositorio cada minuto y ejecute automáticamente el pipeline después de un push.
+
+
+## Manejo de errores
+
+El pipeline incluye un bloque `post` para:
+
+* limpiar el workspace,
+* detectar fallos,
+* mostrar mensajes de éxito o error.
+
+```groovy
+post {
+    always {
+        cleanWs()
+    }
+
+    failure {
+        echo 'Pipeline falló'
+    }
+
+    success {
+        echo 'Pipeline exitoso'
+    }
+}
 ```
