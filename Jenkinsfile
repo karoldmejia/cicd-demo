@@ -3,6 +3,8 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'cicd-demo:latest'
+        SONAR_HOST_URL = 'http://172.17.0.1:9000'
+        SONAR_TOKEN = credentials('sonar-token')
     }
 
     stages {
@@ -16,7 +18,33 @@ pipeline {
             steps {
                 script {
                     docker.image('maven:3.9.9-eclipse-temurin-17').inside {
-                        sh 'mvn clean package -DskipTests'
+                        sh 'mvn clean package'
+                    }
+                }
+            }
+        }
+
+        stage('Static Analysis (SonarQube)') {
+            steps {
+                script {
+                    docker.image('maven:3.9.9-eclipse-temurin-17').inside {
+                        sh """
+                            mvn sonar:sonar \
+                                -Dsonar.projectKey=cicd-demo \
+                                -Dsonar.projectName="CI/CD Demo App" \
+                                -Dsonar.host.url=${SONAR_HOST_URL} \
+                                -Dsonar.login=${SONAR_TOKEN}
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate (SonarQube)') {
+            steps {
+                script {
+                    timeout(time: 5, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
                     }
                 }
             }
@@ -31,18 +59,27 @@ pipeline {
             }
         }
 
-        stage('Run Container (Test Local)') {
+        stage('Container Security Scan (Trivy)') {
             steps {
                 script {
-                    // Clean up if exists
-                    try {
-                        docker.container('cicd-demo-test').stop()
-                        docker.container('cicd-demo-test').remove()
-                    } catch(err) {}
-                    
-                    // Run container
-                    def container = docker.image(IMAGE_NAME).run('-p 8081:8080 -d --name cicd-demo-test')
-                    echo "Container running on port 8081"
+                    sh """
+                        trivy image --severity CRITICAL --exit-code 1 --no-progress ${IMAGE_NAME}
+                    """
+                }
+            }
+        }
+
+        stage('Deploy') {
+            when { 
+                branch 'main' 
+            }
+            steps {
+                script {
+                    sh '''
+                        docker stop mi-app 2>/dev/null || true
+                        docker rm mi-app 2>/dev/null || true
+                        docker run -d -p 8080:8080 --name mi-app ${IMAGE_NAME}
+                    '''
                 }
             }
         }
@@ -51,16 +88,25 @@ pipeline {
     post {
         always {
             script {
+                echo "Limpiando entorno..."
                 try {
                     docker.container('cicd-demo-test').stop()
                     docker.container('cicd-demo-test').remove()
-                } catch(err) {}
+                } catch(err) {
+                    echo "No hay contenedor de prueba para limpiar"
+                }
             }
-            echo 'Limpiando workspace...'
             cleanWs()
         }
+        success {
+            echo "Pipeline exitoso - Todas las validaciones pasaron"
+            echo "Aplicación disponible en: http://localhost:8080"
+        }
         failure {
-            echo 'El pipeline falló'
+            echo "Pipeline falló "
+        }
+        unstable {
+            echo "Pipeline inestable - Calidad del código por debajo del umbral"
         }
     }
 }
